@@ -1,0 +1,21 @@
+# Ignore local virtual environment
+venv/
+env/
+.env
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore git history
+.git/
+.gitignore
+
+# Ignore sensitive env files (Best practice is to inject these at runtime)
+.env
+
+# Ignore Tests
+tests/
+test.ipynb

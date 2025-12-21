@@ -1,0 +1,149 @@
+name: Prompt Converter CI/CD
+
+on:
+  push:
+    branches: [ "main", "development" ]
+    paths:
+      - 'prompt_converter_llm/**'
+      - '.github/**'  # <--- ADD THIS LINE to trigger on workflow changes
+  pull_request:
+    branches: [ "main", "development" ]
+    paths:
+      - 'prompt_converter_llm/**'
+      - '.github/**'  # <--- ADD THIS LINE HERE TOO
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual run'
+        required: false
+        default: 'Manual test'
+
+env:
+  PYTHON_VERSION: "3.11"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # ------------------------------------------------------------------
+  # JOB 1: LINTING (Code Style)
+  # ------------------------------------------------------------------
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./prompt_converter_llm
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Linting Tools
+        run: pip install flake8
+
+      - name: Run flake8
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+  # ------------------------------------------------------------------
+  # JOB 2: SECURITY CHECK (Vulnerabilities)
+  # ------------------------------------------------------------------
+  security:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./prompt_converter_llm
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'fs'
+          scan-ref: 'prompt_converter_llm'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Bandit
+        run: pip install bandit
+
+      - name: Run Bandit (Python Logic Check)
+        # Excluding tests folder and skipping specific checks (B110, B113)
+        run: bandit -r . --exclude ./tests -s B110,B113 -f custom --msg-template "{msg}"
+
+  # ------------------------------------------------------------------
+  # JOB 3: BUILD AND TEST (Pytest)
+  # ------------------------------------------------------------------
+  build-and-test:
+    needs: [security]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./prompt_converter_llm
+    
+    # Inject Dummy Variables so Pydantic Settings doesn't crash
+    env:
+      GEMINI_2_0_API_KEY: "dummy_gemini_key"
+      DATABRICKS_KEY: "dummy_databricks_key"
+      DATABRICKS_WAREHOUSE_KEY: "dummy_warehouse_id"
+      DATABRICKS_DOMAIN: "https://dummy-databricks.com"
+      MONGO_URL: "mongodb://localhost:27017"
+      MONGO_USER: "dummy_user"
+      MONGO_PASSWORD: "dummy_password"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Pytest
+        run: python -m pytest
+
+# ------------------------------------------------------------------
+  # JOB 4: DOCKER CHECK (Build Only)
+  # ------------------------------------------------------------------
+  docker-check:
+    needs: [build-and-test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # We only build the image to ensure the Dockerfile and dependencies are correct.
+      # We do NOT run it, because we don't have a database in CI.
+      - name: Build Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./prompt_converter_llm
+          file: ./prompt_converter_llm/Dockerfile
+          push: false 
+          tags: prompt-converter:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>SQL Copilot · AI-Powered Query Engine</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body data-theme="dark">
+  <!-- Animated Background -->
+  <div class="bg-animation">
+    <div class="bg-gradient bg-gradient-1"></div>
+    <div class="bg-gradient bg-gradient-2"></div>
+    <div class="bg-gradient bg-gradient-3"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+  <!-- Theme Toggle -->
+  <button id="themeToggle" class="theme-toggle" aria-label="Toggle theme">
+    <span class="theme-icon">🌙</span>
+  </button>
+
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar glass">
+      <div class="sidebar-header">
+        <div class="logo">
+          <div class="logo-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+            </svg>
+          </div>
+          <div class="logo-text">
+            <h1>SQL Copilot</h1>
+            <p>AI-Powered Query Engine</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-content">
+        <!-- Connection Status -->
+        <div class="status-card glass">
+          <div class="status-indicator" id="apiHealthPill">
+            <span class="status-dot"></span>
+            <span id="apiHealthText">Backend: Not tested</span>
+          </div>
+          <div class="status-actions">
+            <input type="text" id="backendBaseUrl" class="input-sm" value="http://localhost:8000" placeholder="Backend URL" />
+            <button id="testConnectionBtn" class="btn btn-sm btn-secondary">Test</button>
+          </div>
+        </div>
+
+        <!-- Session Info -->
+        <div class="session-card glass">
+          <div class="session-header">
+            <h3>Session</h3>
+            <button id="newSessionBtn" class="btn btn-sm btn-ghost">New</button>
+          </div>
+          <div class="session-badges">
+            <span class="badge" id="sessionDb">Engine: –</span>
+            <span class="badge" id="sessionTables">0 tables</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <p>Built for exploration, not production. Guardrails run server‑side.</p>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Top Header -->
+      <header class="top-header glass">
+        <div class="header-section">
+          <div class="section-label">1 · Engine & Metadata</div>
+          <div class="header-controls">
+            <select id="dbEngineSelect" class="select-input"></select>
+            <button id="loadMetadataBtn" class="btn btn-primary">
+              <span>Load Metadata</span>
+            </button>
+            <span class="status-badge" id="metadataStatus">idle</span>
+          </div>
+        </div>
+
+        <div class="header-divider"></div>
+
+        <div class="header-section">
+          <div class="section-label">2 · Discover Tables</div>
+          <div class="search-controls">
+            <input type="text" id="tableSearchInput" class="search-input" placeholder="Search tables… e.g. nutrition, orders, revenue" />
+            <button id="searchTablesBtn" class="btn btn-secondary">Search</button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Workspace -->
+      <div class="workspace">
+        <!-- Left Column -->
+        <div class="workspace-left">
+          <!-- Tables Panel -->
+          <div class="panel glass">
+            <div class="panel-header">
+              <h2>Tables</h2>
+              <span class="panel-count" id="tablesCountLabel">0 found</span>
+            </div>
+            <div class="panel-body scrollable" id="tableSearchResults"></div>
+          </div>
+
+          <!-- Context Panel -->
+          <div class="panel glass">
+            <div class="panel-header">
+              <h2>Context</h2>
+              <span class="panel-subtitle">Tables used for schema‑aware prompting</span>
+            </div>
+            <div class="panel-body">
+              <div id="selectedTables" class="chip-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column -->
+        <div class="workspace-right">
+          <!-- Query Panel -->
+          <div class="panel glass panel-query">
+            <div class="panel-header">
+              <h2>Ask a Question</h2>
+              <span class="panel-subtitle">Natural language → secure, optimized SQL → Databricks</span>
+            </div>
+            <div class="panel-body">
+              <div class="query-input-wrapper">
+                <textarea id="userPrompt" class="query-input" rows="4" placeholder="e.g. Compare average calories and protein per meal across the last 3 months, grouped by weekday."></textarea>
+              </div>
+              <div class="query-footer">
+                <div class="query-tips">
+                  <span class="tips-label">💡 Tips:</span>
+                  <ul>
+                    <li>Mention business logic, time ranges, and aggregation level.</li>
+                    <li>Use plain English; engine + safety rules are applied automatically.</li>
+                  </ul>
+                </div>
+                <div class="query-actions">
+                  <button id="runLlmBtn" class="btn btn-primary btn-large">
+                    <span>Generate & Run SQL</span>
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                  </button>
+                  <span class="status-badge" id="llmStatus">idle</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Results Panel -->
+          <div class="panel glass panel-tabs">
+            <div class="panel-header panel-header-tabs">
+              <div class="tabs">
+                <button class="tab-btn active" data-tab="sql">
+                  <span>Generated SQL</span>
+                </button>
+                <button class="tab-btn" data-tab="results">
+                  <span>Results</span>
+                </button>
+                <button class="tab-btn" data-tab="logs">
+                  <span>Debug</span>
+                </button>
+              </div>
+              <button id="downloadCsvBtn" class="btn btn-secondary btn-download" style="display: none;">
+                <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                <span>Download CSV</span>
+              </button>
+            </div>
+            <div class="panel-body panel-body-tabs">
+              <div id="sqlTab" class="tab-content active">
+                <div class="tab-loading" id="sqlLoading" style="display: none;">
+                  <div class="loading-spinner-small"></div>
+                  <span>Generating SQL...</span>
+                </div>
+                <pre id="sqlOutput" class="code-block"></pre>
+              </div>
+              <div id="resultsTab" class="tab-content">
+                <div class="tab-loading" id="resultsLoading" style="display: none;">
+                  <div class="loading-spinner-small"></div>
+                  <span>Executing query...</span>
+                </div>
+                <div id="resultsOutput" class="results-container"></div>
+              </div>
+              <div id="logsTab" class="tab-content">
+                <pre id="logsOutput" class="code-block"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast"></div>
+
+
+  <script src="app.js"></script>
+</body>
+</html>
