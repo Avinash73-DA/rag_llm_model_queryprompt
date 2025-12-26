@@ -15,11 +15,21 @@ from mongo_client.mongo_db import Mongo_Db
 from utils.csv_exporter import csv_downloader
 from helper.query_validator import is_query_Safe
 from mongo_client.logging_utils import APILogger
-from helper.helper import build_schema_context,generate_sql_from_llm,execute_llm_query, OptimiseQuery_llm_model
-
+from utils.id_tack_updater import req_creation,req_closure
+from helper.helper import ( 
+    build_schema_context,
+    generate_sql_from_llm,
+    execute_llm_query,
+    OptimiseQuery_llm_model
+)
 ## Pydantic Module ##
-from models.types import Db_Define,Sql_Query,Llm_query,TableSearchResults,CsvReportRequests
-
+from models.types import (
+    Db_Define,
+    Sql_Query,
+    Llm_query,
+    TableSearchResults,
+    CsvReportRequests
+)
 ## Crediential Module ##
 from core.Config import settings
 
@@ -141,24 +151,55 @@ async def database_definement(data:Db_Define):
 async def metadata(request:Request):
     # Initialize Logger
     logger = APILogger(mongo,request)
+    req_ctx  = await req_creation()
     
     try:
+        await logger.log(
+            200,
+            "Processing",
+            request_id=req_ctx.get('req_id'),
+            start_time=req_ctx.get('start_time'),
+            detail="Request for Metadata"
+            )
+
+        ##Processing
         data = await asyncio.to_thread(db.execute_query,query_statement=META_DATA_QUERY)
         output = await asyncio.to_thread(db.fetch_results,data)
         final_output = await asyncio.to_thread(val.join_data,output)
         
-        await logger.log(200,"SUCCESS",detail="Request for Metadata")
+        req_ctx_output = await req_closure(req_ctx)
+        await logger.log(
+            200,
+            "SUCCESS",
+            request_id=req_ctx_output.get('req_id'),
+            start_time=req_ctx_output.get('start_time'),
+            processed_time=req_ctx_output.get('processed_time'),
+            duration_ms=req_ctx_output.get('duration_ms'),
+            detail="Request for Metadata"
+            )
         
         return final_output
     
     except Exception as e:
-        await logger.log(400,"ERROR",detail=str(e),error_type=type(e).__name__)
+        req_ctx_output = await req_closure(req_ctx)
+        await logger.log(
+            500,
+            "Failed",
+            request_id=req_ctx_output.get('req_id'),
+            start_time=req_ctx_output.get('start_time'),
+            processed_time=req_ctx_output.get('processed_time'),
+            duration_ms=req_ctx_output.get('duration_ms'),
+            detail="Request for Metadata",
+            error_detail=str(e),
+            error_type=type(e).__name__
+            )
         raise e
 
 @app.get("/v1/search_tables",response_model=List[TableSearchResults])
 async def search_tables(table:str,request:Request):
     logger = APILogger(mongo,request)
-    
+    req_ctx  = await req_creation()
+
     if not table:
         raise HTTPException(status_code=400,detail="Searche query 'table' is required")
     
@@ -166,26 +207,62 @@ async def search_tables(table:str,request:Request):
         # Surround with wildcards so partial matches (anywhere in the name/comment) are found
         search=f"%{table}%"
     )
-    
     log.info(f"Executing metadata search query")
     
     try:
+        ## API Processing
+        await logger.log(
+            200,
+            "Processing",
+            request_id=req_ctx.get('req_id'),
+            start_time=req_ctx.get('start_time'),
+            parameter_used=f"/table={table}",
+            detail="Request for Search Tables"
+            )
+
         data = await asyncio.to_thread(db.execute_query,query_statement=query_statement)
         output = await asyncio.to_thread(db.fetch_results,data)
         final_output = await asyncio.to_thread(val.join_data,output)
         
-        await logger.log(200,"SUCCESS",parameter_used=f"/table={table}",results_count=len(final_output.get('result', [])))
+        ## API SUCCESS
+        req_ctx_output = await req_closure(req_ctx)
+        await logger.log(
+            200,
+            "SUCCESS",
+            request_id=req_ctx_output.get('req_id'),
+            start_time=req_ctx_output.get('start_time'),
+            processed_time=req_ctx_output.get('processed_time'),
+            duration_ms=req_ctx_output.get('duration_ms'),
+            parameter_used=f"/table={table}",
+            results_count=len(final_output.get('result', []))
+            )
+
         return final_output['result']
     
     except Exception as e:
-        log.critical(f"An unhandled error occurred in /v1/metadata: {e}", exc_info=True)
-        await logger.log(500,"ERROR",detail=str(e),error_type=type(e).__name__)
+        
+        ## API Failure
+        req_ctx_output = await req_closure(req_ctx)
+        await logger.log(
+            500,
+            "Failed",
+            request_id=req_ctx_output.get('req_id'),
+            start_time=req_ctx_output.get('start_time'),
+            processed_time=req_ctx_output.get('processed_time'),
+            duration_ms=req_ctx_output.get('duration_ms'),
+            parameter_used=f"/table={table}",
+            detail="Request for search_tables",
+            error_detail=str(e),
+            error_type=type(e).__name__
+            )
+
+        log.critical(f"An unhandled error occurred in /v1/search_tables: {e}", exc_info=True)
         raise e
     
         
 @app.post('/v1/sql_query')
 async def sql_query(query_attribute:Sql_Query):
-  
+
     data = await asyncio.to_thread (db.execute_query,query_attribute.query_statement)
     output = await asyncio.to_thread (db.fetch_results,data)
     final_output = await asyncio.to_thread (val.join_data,output)
@@ -197,7 +274,7 @@ async def sql_query(query_attribute:Sql_Query):
 async def llm_query_engine(inputs: Llm_query,request:Request):
     
     logger = APILogger(mongo, request)
-    
+    req_ctx  = await req_creation()
     # Set Context (Applied to all future logs in this request)
     logger.set_context(
         selected_database=inputs.db_selection,
@@ -207,6 +284,14 @@ async def llm_query_engine(inputs: Llm_query,request:Request):
     table_info_context = None
     
     try:
+        ## API Processing
+        await logger.log(
+            200,
+            "Processing",
+            request_id=req_ctx.get('req_id'),
+            start_time=req_ctx.get('start_time'),
+            detail="Request for LLM"
+            )
         # Step 1: Build the schema context
         table_info_context = await build_schema_context(inputs.selected_tables, db=db,  val=val)
         
@@ -218,15 +303,32 @@ async def llm_query_engine(inputs: Llm_query,request:Request):
 
         
         if not is_safe:
+            req_ctx_output_rt_safetyfail_UNOP = await req_closure(req_ctx)
             await logger.log(
-                400, "Error", 
-                error_type=SECURITY_FAILURE, 
+                400,
+                "Error - UNOP Not Safe",
+                request_id=req_ctx_output_rt_safetyfail_UNOP.get('req_id'),
+                start_time=req_ctx_output_rt_safetyfail_UNOP.get('start_time'),
+                processed_time=req_ctx_output_rt_safetyfail_UNOP.get('processed_time'),
+                duration_ms=req_ctx_output_rt_safetyfail_UNOP.get('duration_ms'),
+                error_type=SECURITY_FAILURE,
                 detail=f"Generated SQL failed security check: {reason}",
                 llm_generated_sql=UNOP_sql_query
             )
+
             raise HTTPException(status_code=400, detail=reason)
-           
-        await logger.log(200, "Success - UNOPTIMISED QUERY", llm_generated_sql=UNOP_sql_query, results_count=0)
+        
+        req_ctx_output_UNOP = await req_closure(req_ctx)
+        await logger.log(
+            200,
+            "Success - UNOPTIMISED QUERY",
+            request_id=req_ctx_output_UNOP.get('req_id'),
+            start_time=req_ctx_output_UNOP.get('start_time'),
+            processed_time=req_ctx_output_UNOP.get('processed_time'),
+            duration_ms=req_ctx_output_UNOP.get('duration_ms'), 
+            llm_generated_sql=UNOP_sql_query,
+            results_count=0
+            )
         
         ## -- STEP:3 QUERY OPTIMIZATION -- ##
         sql_query = await OptimiseQuery_llm_model(inputs.db_selection, inputs.user_input, table_info_context, llm=llm, db=db, val=val, sql_query=UNOP_sql_query)
@@ -234,15 +336,32 @@ async def llm_query_engine(inputs: Llm_query,request:Request):
         is_safe,reason = await asyncio.to_thread(is_query_Safe,sql_query=sql_query) 
         
         if not is_safe:
+            req_ctx_output_rt_safetyfail = await req_closure(req_ctx)
             await logger.log(
-                400, "Error", 
-                error_type=SECURITY_FAILURE, 
+                400,
+                "Error - Not Safe",
+                request_id=req_ctx_output_rt_safetyfail.get('req_id'),
+                start_time=req_ctx_output_rt_safetyfail.get('start_time'),
+                processed_time=req_ctx_output_rt_safetyfail.get('processed_time'),
+                duration_ms=req_ctx_output_rt_safetyfail.get('duration_ms'),
+                error_type=SECURITY_FAILURE,
                 detail=f"Generated SQL failed security check: {reason}",
                 llm_generated_sql=sql_query
-            )
+                )
+
             raise HTTPException(status_code=400, detail=reason)
-        
-        await logger.log(200, "Success - OPTIMISED QUERY", llm_generated_sql=sql_query, results_count=0)
+
+        req_ctx_output_OP = await req_closure(req_ctx)
+        await logger.log(
+            200,
+            "Success - OPTIMISED QUERY",
+            request_id=req_ctx_output_OP.get('req_id'),
+            start_time=req_ctx_output_OP.get('start_time'),
+            processed_time=req_ctx_output_OP.get('processed_time'),
+            duration_ms=req_ctx_output_OP.get('duration_ms'),
+            llm_generated_sql=sql_query,
+            results_count=0
+            )
         
         # -- Step 4: Execute the generated SQL -- ##
         final_output = await execute_llm_query(sql_query, db=db, val=val)
@@ -252,11 +371,17 @@ async def llm_query_engine(inputs: Llm_query,request:Request):
             log.info(f"Initial Query Failed: {final_output.get('result')}. Attempting Retry.")
             
             # Log the failure attempt
+            req_ctx_output_rt_fail = await req_closure(req_ctx)
             await logger.log(
-                400, "Error - Retry Pushed",
-                Error_Type=str(final_output.get('result')),
-                llm_generated_sql=sql_query
-            )
+                400,
+                "Error - Retry Pushed",
+                request_id=req_ctx_output_rt_fail.get('req_id'),
+                start_time=req_ctx_output_rt_fail.get('start_time'),
+                processed_time=req_ctx_output_rt_fail.get('processed_time'),
+                duration_ms=req_ctx_output_rt_fail.get('duration_ms'),
+                llm_generated_sql=sql_query,
+                error_Type=str(final_output.get('result'))
+                )
             
             # Generate Correction
             UNOP_sql_query_2 = await generate_sql_from_llm(inputs.db_selection, inputs.user_input, table_info_context,llm=llm,previous_sql=sql_query,error_message=final_output['result'],retry=True)
@@ -264,12 +389,18 @@ async def llm_query_engine(inputs: Llm_query,request:Request):
             is_safe,reason = await asyncio.to_thread(is_query_Safe,sql_query=UNOP_sql_query_2)
             
             if not is_safe:
+                req_ctx_output_rt = await req_closure(req_ctx)
                 await logger.log(
-                    400, "Error - Retry", 
-                    error_type=SECURITY_FAILURE, 
+                    400,
+                    "Error - Retry",
+                    request_id=req_ctx_output_rt.get('req_id'),
+                    start_time=req_ctx_output_rt.get('start_time'),
+                    processed_time=req_ctx_output_rt.get('processed_time'),
+                    duration_ms=req_ctx_output_rt.get('duration_ms'),                  error_type=SECURITY_FAILURE, 
                     detail=f"Generated SQL failed security check: {reason}",
                     llm_generated_sql=UNOP_sql_query_2
                 )
+
                 raise HTTPException(status_code=400, detail=f"Retry Query Unsafe: {reason}")
             
             ## -- Retry: QUERY OPTIMIZATION -- ##
@@ -278,12 +409,18 @@ async def llm_query_engine(inputs: Llm_query,request:Request):
             is_safe,reason = await asyncio.to_thread(is_query_Safe,sql_query=sql_query_2) 
             
             if not is_safe:
+                req_ctx_output_rt1 = await req_closure(req_ctx)
                 await logger.log(
-                    400, "Error", 
-                    error_type=SECURITY_FAILURE, 
+                    400,
+                    "Error",
+                    request_id=req_ctx_output_rt1.get('req_id'),
+                    start_time=req_ctx_output_rt1.get('start_time'),
+                    processed_time=req_ctx_output_rt1.get('processed_time'),
+                    duration_ms=req_ctx_output_rt1.get('duration_ms'),                  error_type=SECURITY_FAILURE, 
                     detail=f"Generated SQL failed security check: {reason}",
                     llm_generated_sql=sql_query_2
-                )
+                    )
+
                 raise HTTPException(status_code=400, detail=reason)
                 
             # Execute 2nd Query
@@ -293,10 +430,16 @@ async def llm_query_engine(inputs: Llm_query,request:Request):
             sql_query = sql_query_2
             
             if final_output.get('status') == "ERROR":
+                req_ctx_output_eq_fail = await req_closure(req_ctx)
                 await logger.log(
-                    400, "Error Retry - Query Execution Failed", 
+                    400,
+                    "Error Retry - Query Execution Failed",
+                    request_id=req_ctx_output_eq_fail.get('req_id'),
+                    start_time=req_ctx_output_eq_fail.get('start_time'),
+                    processed_time=req_ctx_output_eq_fail.get('processed_time'),duration_ms=req_ctx_output_eq_fail.get('duration_ms'),
                     llm_generated_sql=sql_query
                 )
+
                 
                 return JSONResponse(
                     status_code=400, 
@@ -321,8 +464,18 @@ async def llm_query_engine(inputs: Llm_query,request:Request):
         results_list = final_output.get('result', []) if final_output else []
         row_count = len(results_list)
         
-        await logger.log(200, "Success", llm_generated_sql=sql_query, results_count=row_count)
-        
+        req_ctx_output_OP1 = await req_closure(req_ctx)
+        await logger.log(
+            200,
+            "Success",
+            request_id=req_ctx_output_OP1.get('req_id'),
+            start_time=req_ctx_output_OP1.get('start_time'),
+            processed_time=req_ctx_output_OP1.get('processed_time'),
+            duration_ms=req_ctx_output_OP1.get('duration_ms'), 
+            llm_generated_sql=sql_query, 
+            results_count=row_count
+        )
+
         # Include SQL in the response for frontend display
         response_data = final_output.copy() if final_output else {}
         response_data['llm_generated_sql'] = sql_query
@@ -333,12 +486,19 @@ async def llm_query_engine(inputs: Llm_query,request:Request):
         # Catch any other unexpected errors
         log.critical(f"An unhandled error occurred in /v1/llm: {e}", exc_info=True)
         
+        req_ctx_output_fail = await req_closure(req_ctx)
         await logger.log(
-            500, "Error", 
-            error_type=type(e).__name__, 
+            400,
+            "Error",
+            request_id=req_ctx_output_fail.get('req_id'),
+            start_time=req_ctx_output_fail.get('start_time'),
+            processed_time=req_ctx_output_fail.get('processed_time'),
+            duration_ms=req_ctx_output_fail.get('duration_ms'),
+            error_type=type(e).__name__,
             detail=str(e),
             llm_generated_sql=sql_query
         )
+
         raise e
 @app.post("/v1/csv_report")
 async def csv_report(request_data:CsvReportRequests, request:Request):

@@ -18,7 +18,6 @@ def get_Safe_headers(request:Request) -> dict:
 async def log_api_call(
     mongo:Mongo_Db,
     request:Request,
-    start_time:datetime.datetime,
     status_code:int,
     status:str,
     **kwargs):
@@ -26,13 +25,10 @@ async def log_api_call(
     Centralized function to build and push API logs to MongoDB.
     """
     
-    duration_ms = (datetime.datetime.now(datetime.timezone.utc) - start_time).total_seconds() * 1000
     
     log_payload = {
         "status_code": status_code,
         "status": status,
-        "processed_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "duration_ms": duration_ms,
         
         ## Request Info
         "request_info": {
@@ -67,7 +63,6 @@ class APILogger:
     def __init__(self,mongo:Mongo_Db, request:Request):
         self.mongo = mongo
         self.request = request
-        self.start_time = datetime.datetime.now(datetime.timezone.utc)
         self.context: Dict[str, Any] = {}
     
     def set_context(self,**kwargs):
@@ -94,7 +89,6 @@ class APILogger:
         await log_api_call(
             mongo=self.mongo,
             request=self.request,
-            start_time=self.start_time,
             status_code=status_code,
             status=status,
             **final_payload
